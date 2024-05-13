@@ -1,0 +1,187 @@
+#!/usr/bin/env tclsh
+package require tcltest
+namespace import ::tcltest::*
+source testHelpers.tcl
+
+# configure -verbose {body error usec}
+
+############################################################
+source "bank-account.tcl"
+
+test bank-account-1 "newly opened account has zero balance" -body {
+    set account [BankAccount new]
+    $account open
+    $account balance
+} -returnCodes ok -result 0
+
+skip bank-account-2
+test bank-account-2 "single deposit" -body {
+    set account [BankAccount new]
+    $account open
+    $account deposit 100
+    $account balance
+} -returnCodes ok -result 100
+
+skip bank-account-3
+test bank-account-3 "multiple deposits" -body {
+    set account [BankAccount new]
+    $account open
+    $account deposit 100
+    $account deposit 50
+    $account balance
+} -returnCodes ok -result 150
+
+skip bank-account-4
+test bank-account-4 "withdraw once" -body {
+    set account [BankAccount new]
+    $account open
+    $account deposit 100
+    $account withdraw 75
+    $account balance
+} -returnCodes ok -result 25
+
+skip bank-account-5
+test bank-account-5 "withdraw twice" -body {
+    set account [BankAccount new]
+    $account open
+    $account deposit 100
+    $account withdraw 80
+    $account withdraw 20
+    $account balance
+} -returnCodes ok -result 0
+
+skip bank-account-6
+test bank-account-6 "can do multiple operations sequentially" -body {
+    set account [BankAccount new]
+    $account open
+    $account deposit 100
+    $account deposit 110
+    $account withdraw 200
+    $account deposit 60
+    $account withdraw 50
+    $account balance
+} -returnCodes ok -result 20
+
+skip bank-account-7
+test bank-account-7 "cannot check balance of a closed account" -body {
+    set account [BankAccount new]
+    $account open
+    $account close
+    $account balance
+} -returnCodes error -match glob -result "*account is not open*"
+
+skip bank-account-8
+test bank-account-8 "cannot deposit into closed account" -body {
+    set account [BankAccount new]
+    $account open
+    $account close
+    $account deposit 50
+} -returnCodes error -match glob -result "*account is not open*"
+
+skip bank-account-9
+test bank-account-9 "cannot deposit into unopened account" -body {
+    set account [BankAccount new]
+    $account deposit 50
+} -returnCodes error -match glob -result "*account is not open*"
+
+skip bank-account-10
+test bank-account-10 "cannot withdraw from closed account" -body {
+    set account [BankAccount new]
+    $account open
+    $account close
+    $account withdraw 50
+} -returnCodes error -match glob -result "*account is not open*"
+
+skip bank-account-11
+test bank-account-11 "cannot close an account that was not opened" -body {
+    set account [BankAccount new]
+    $account close
+} -returnCodes error -match glob -result "*account is not open*"
+
+skip bank-account-12
+test bank-account-12 "cannot open an already opened account" -body {
+    set account [BankAccount new]
+    $account open
+    $account open
+} -returnCodes error -match glob -result "*account is already open*"
+
+skip bank-account-13
+test bank-account-13 "reopened account does not retain balance" -body {
+    set account [BankAccount new]
+    $account open
+    $account deposit 50
+    $account close
+    $account open
+    $account balance
+} -returnCodes ok -result 0
+
+skip bank-account-14
+test bank-account-14 "cannot withdraw more than deposited" -body {
+    set account [BankAccount new]
+    $account open
+    $account deposit 25
+    $account withdraw 50
+} -returnCodes error -match glob -result "*insufficient funds*"
+
+skip bank-account-15
+test bank-account-15 "cannot withdraw negative" -body {
+    set account [BankAccount new]
+    $account open
+    $account deposit 100
+    $account withdraw -50
+} -returnCodes error -match glob -result "*invalid amount*"
+
+skip bank-account-16
+test bank-account-16 "cannot deposit negative" -body {
+    set account [BankAccount new]
+    $account open
+    $account deposit -50
+} -returnCodes error -match glob -result "*invalid amount*"
+
+skip bank-account-17
+test bank-account-17 "can handle concurrent transactions" -body {
+    # In this style of using Tcl threads, we don't need
+    # to make any thread-specific adjustments to the
+    # BankAccount class: passing messages between threads
+    # does all the locking for us transparently.
+
+    package require Thread
+
+    BankAccount create theAccount
+    theAccount open
+    theAccount deposit 123
+
+    # Create 1000 worker threads
+    for {set i 0} {$i < 1000} {incr i} {
+        lappend threads [thread::create -joinable {
+            proc doWork {acctThread} {
+                thread::send -async $acctThread {
+                    theAccount deposit 5
+                }
+                # wait a few milliseconds
+                after [expr {int(10 * rand())}]
+                thread::send -async $acctThread {
+                    theAccount withdraw 5
+                }
+                # now that I've done the work, release me
+                thread::release
+            }
+            thread::wait
+        }]
+    }
+
+    # Launch them
+    foreach thread $threads {
+        thread::send -async $thread [list doWork [thread::id]]
+    }
+
+    # Reap them
+    foreach thread $threads {
+        thread::join $thread
+    }
+
+    theAccount balance
+
+} -returnCodes ok -result 123
+
+cleanupTests

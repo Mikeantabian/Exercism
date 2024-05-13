@@ -1,0 +1,10 @@
+**/.exercism/*
+**/HELP.md/*
+**/README.md/*
+./build
+**/build
+**/.exercism
+*.exe
+*.obj
+*.o
+.vscode
